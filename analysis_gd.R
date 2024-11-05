@@ -4,7 +4,7 @@ library(tidyverse)
 source("function_julian_date.R")
 
 dataset <- read_csv(
-  "data/ENEF01_1-10-23_00-00_1_Year_1730815843_v2.csv",
+  "Bouamir_Research_Station_11-19-23_23-00_1_Year_1720206107_v2.csv",
   skip = 5,
   col_types = cols(.default = "c"),
   locale = locale(encoding = "latin1")
@@ -38,7 +38,7 @@ names(dataset) <-
 
 dataset_num <- 
   dataset %>% 
-  mutate(across(2:54, ~ na_if(., "--"))) %>%
+  mutate(across(2:ncol(dataset), ~ na_if(., "--"))) %>%
   mutate(across(everything(), ~ str_replace(., ",", "."))) %>% 
   mutate(across(!contains("wind_dir") & !contains("date_"), ~ as.numeric(.)))
 
