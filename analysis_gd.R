@@ -4,7 +4,7 @@ library(tidyverse)
 source("function_julian_date.R")
 
 dataset <- read_csv(
-  "Bouamir_Research_Station_11-19-23_23-00_1_Year_1720206107_v2.csv",
+  "ENEF01_1-10-23_00-00_1_Year_1727701463_v2.csv",
   skip = 5,
   col_types = cols(.default = "c"),
   locale = locale(encoding = "latin1")
@@ -165,12 +165,14 @@ temp_month <-
   group_by(date_julian, month, year) %>% 
   summarise(temp_mean = mean(temp, na.rm = T),
             temp_min = min(low_temp, na.rm = T),
-            temp_max = max(high_temp, na.rm = T)) %>% 
+            temp_max = max(high_temp, na.rm = T),
+            et_mean = mean(et, na.rm = T)) %>% 
   ungroup() %>% 
   group_by(month, year) %>% 
   summarise(temp_mean = mean(temp_mean, na.rm = T),
             temp_min = mean(temp_min, na.rm = T),
-            temp_max = mean(temp_max, na.rm = T)) %>% 
+            temp_max = mean(temp_max, na.rm = T),
+            et_mean = mean(et_mean, na.rm = T)) %>% 
   mutate(month_txt = paste(year, month, "01", sep = "-")) %>% 
   mutate(month_d = as.Date(month_txt)) %>% 
   mutate(month_d = format(month_d, "%Y-%m")) %>% 
@@ -180,7 +182,7 @@ temp_month <-
 
 monthly_data <- 
   rain_month %>%
-  left_join(temp_month %>% select(month_d, starts_with("temp"))) %>% 
+  left_join(temp_month %>% select(month_d, starts_with("temp"), et_mean)) %>% 
   mutate(Mth = factor(month.abb[month], 
                       levels = c("Jan", "Feb", "Mar", "Apr",
                                  "May", "Jun", "Jul", "Aug",
@@ -277,4 +279,57 @@ rain_events_month <-
 
 
 
-  
+### compute statistics with a rolling window
+library(zoo)
+
+test <- 
+  dataset_filtered %>% 
+  arrange(date_time) %>% 
+  group_by(date_julian, day, month, year) %>% 
+  summarise(temp = mean(temp, na.rm = T),
+            rain = sum(rain, na.rm = T),
+            avg_wind_speed = mean(avg_wind_speed, na.rm = T),
+            et = mean(et, na.rm = T)) %>% 
+  ungroup() %>% 
+  mutate(rol_temp_mean = rollapply(data = temp, width = 15, 
+                                   FUN = mean, align = "right", fill = NA, na.rm = TRUE),
+         rol_rain_mean = rollapply(data = rain, width = 15, 
+                                   FUN = sum, align = "right", fill = NA),
+         rol_avg_wind_speed_mean = rollapply(data = avg_wind_speed, width = 15, 
+                                             FUN = mean, align = "right", fill = NA),
+         rol_aet = rollapply(data = et, width = 15, 
+                                             FUN = mean, align = "right", fill = NA)) %>% 
+  mutate(date = paste(year, month, day, sep = "-")) %>% 
+  mutate(date = as.Date(date))
+
+
+p <- ggplot(test, aes(x=date, y=rol_temp_mean)) +
+  geom_line() + 
+  xlab("") + 
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "2 weeks") +
+  theme(axis.text.x=element_text(angle=60, hjust=1)) 
+p
+
+
+p <- ggplot(test, aes(x=date, y=rol_avg_wind_speed_mean)) +
+  geom_line() + 
+  xlab("") + 
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "2 weeks") +
+  theme(axis.text.x=element_text(angle=60, hjust=1)) 
+p
+
+
+p <- ggplot(test, aes(x=date, y=rol_rain_mean)) +
+  geom_line() + 
+  xlab("") + 
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "2 weeks") +
+  theme(axis.text.x=element_text(angle=60, hjust=1)) 
+p
+
+
+p <- ggplot(test, aes(x=date, y=rol_aet)) +
+  geom_line() + 
+  xlab("") + 
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "2 weeks") +
+  theme(axis.text.x=element_text(angle=60, hjust=1)) 
+p
