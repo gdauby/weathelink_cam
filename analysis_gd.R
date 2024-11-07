@@ -30,11 +30,11 @@ all_colnames <-
 names(dataset) <- 
   all_colnames$modified_colnam
 
-dataset %>% slice(1:10) %>% View
+# dataset %>% slice(1:10) %>% View
 
-dataset %>% 
-  mutate(inside_temp = str_replace(inside_temp, ",", ".")) %>% 
-  mutate(inside_temp = as.numeric(inside_temp))
+# dataset %>% 
+#   mutate(inside_temp = str_replace(inside_temp, ",", ".")) %>% 
+#   mutate(inside_temp = as.numeric(inside_temp))
 
 dataset_num <- 
   dataset %>% 
@@ -155,7 +155,9 @@ rain_month <-
   mutate(month_d = as.Date(month_txt)) %>%
   mutate(month_d = format(month_d, "%Y-%m")) %>% 
   ungroup() %>% 
-  mutate(DOY = seq(15, 365, by = 365/12))
+  left_join(tibble(DOY = seq(15, 365, by = 365/12),
+                   month = seq(1, 12, 1))
+  )
 
 
 temp_month <- 
@@ -163,12 +165,14 @@ temp_month <-
   group_by(date_julian, month, year) %>% 
   summarise(temp_mean = mean(temp, na.rm = T),
             temp_min = min(low_temp, na.rm = T),
-            temp_max = max(high_temp, na.rm = T)) %>% 
+            temp_max = max(high_temp, na.rm = T),
+            et_mean = mean(et, na.rm = T)) %>% 
   ungroup() %>% 
   group_by(month, year) %>% 
   summarise(temp_mean = mean(temp_mean, na.rm = T),
             temp_min = mean(temp_min, na.rm = T),
-            temp_max = mean(temp_max, na.rm = T)) %>% 
+            temp_max = mean(temp_max, na.rm = T),
+            et_mean = mean(et_mean, na.rm = T)) %>% 
   mutate(month_txt = paste(year, month, "01", sep = "-")) %>% 
   mutate(month_d = as.Date(month_txt)) %>% 
   mutate(month_d = format(month_d, "%Y-%m")) %>% 
@@ -178,7 +182,7 @@ temp_month <-
 
 monthly_data <- 
   rain_month %>%
-  left_join(temp_month %>% select(month_d, starts_with("temp"))) %>% 
+  left_join(temp_month %>% select(month_d, starts_with("temp"), et_mean)) %>% 
   mutate(Mth = factor(month.abb[month], 
                       levels = c("Jan", "Feb", "Mar", "Apr",
                                  "May", "Jun", "Jul", "Aug",
@@ -217,8 +221,115 @@ ggplot() +
   theme_bw()
 
 
+### Extreme rainfall events
+dataset_filtered %>% 
+  group_by(date_julian, day, month, year) %>% 
+  summarise(rain = sum(rain)) %>% 
+  filter(rain > 100)
+
+
+### rain events identified as consecutives hours where rain > 0
+rain_events <- 
+  dataset_filtered %>% 
+  select(date_julian, hour, rain, avg_wind_speed, high_wind_speed, day, month, year, date) %>% 
+  group_by(date_julian, hour, day, month, year, date) %>% ### grouping by hour
+  summarise(rain = sum(rain, na.rm = T), ### hourly rain
+            avg_avg_wind_speed = mean(avg_wind_speed, na.rm = T), ## averaged averaged wind speed during event
+            max_avg_wind_speed = max(avg_wind_speed, na.rm = T), ### maximal averaged wind speed during event
+            avg_high_wind_speed = mean(high_wind_speed, na.rm = T), ### averaged maximal wind speed during event
+            max_high_wind_speed = max(high_wind_speed, na.rm = T)) %>%  ### maximal maximal wind speed during event
+  ungroup() %>% 
+  mutate(rain_event = cumsum(rain == 0)) %>% ### attributing group
+  filter(rain > 0) ### filtering out when no rain
+ 
+rain_events_grouped <- 
+  rain_events %>% 
+  group_by(rain_event) %>% 
+  summarise(rain = sum(rain, na.rm = T),
+            avg_avg_wind_speed = mean(avg_avg_wind_speed, na.rm = T),
+            max_avg_wind_speed = max(max_avg_wind_speed, na.rm = T),
+            max_high_wind_speed = max(max_high_wind_speed, na.rm = T),
+            avg_high_wind_speed = mean(avg_high_wind_speed, na.rm = T),
+            date_julian = paste(as.character(unique(date_julian)), collapse ="-")
+            ) %>% 
+  mutate(across(contains("wind_speed"), ~set_units(., m/s))) %>% 
+  mutate(across(contains("wind_speed"), ~set_units(., km/h)))
+
+
+extreme_events <- 
+  rain_events_grouped %>% 
+  filter(max_avg_wind_speed > set_units(10, km/h) | 
+         rain > 50)
+
+rain_events %>% 
+  filter(rain_event %in% extreme_events$rain_event) %>% 
+  group_by(month, year) %>% 
+  summarise(nbe_events = length(unique(rain_event)))
+
+
+rain_events_month <- 
+  rain_events_grouped %>% 
+  group_by(month, year) %>% 
+  summarise(rain = sum(rain, na.rm = T)) %>% 
+  mutate(month_txt = paste(year, month, "01", sep = "-")) %>% 
+  mutate(month_d = as.Date(month_txt)) %>%
+  mutate(month_d = format(month_d, "%Y-%m")) %>% 
+  ungroup() %>% 
+  mutate(DOY = seq(15, 365, by = 365/12))
 
 
 
+### compute statistics with a rolling window
+library(zoo)
+
+test <- 
+  dataset_filtered %>% 
+  arrange(date_time) %>% 
+  group_by(date_julian, day, month, year) %>% 
+  summarise(temp = mean(temp, na.rm = T),
+            rain = sum(rain, na.rm = T),
+            avg_wind_speed = mean(avg_wind_speed, na.rm = T),
+            et = mean(et, na.rm = T)) %>% 
+  ungroup() %>% 
+  mutate(rol_temp_mean = rollapply(data = temp, width = 15, 
+                                   FUN = mean, align = "right", fill = NA, na.rm = TRUE),
+         rol_rain_mean = rollapply(data = rain, width = 15, 
+                                   FUN = sum, align = "right", fill = NA),
+         rol_avg_wind_speed_mean = rollapply(data = avg_wind_speed, width = 15, 
+                                             FUN = mean, align = "right", fill = NA),
+         rol_aet = rollapply(data = et, width = 15, 
+                                             FUN = mean, align = "right", fill = NA)) %>% 
+  mutate(date = paste(year, month, day, sep = "-")) %>% 
+  mutate(date = as.Date(date))
 
 
+p <- ggplot(test, aes(x=date, y=rol_temp_mean)) +
+  geom_line() + 
+  xlab("") + 
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "2 weeks") +
+  theme(axis.text.x=element_text(angle=60, hjust=1)) 
+p
+
+
+p <- ggplot(test, aes(x=date, y=rol_avg_wind_speed_mean)) +
+  geom_line() + 
+  xlab("") + 
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "2 weeks") +
+  theme(axis.text.x=element_text(angle=60, hjust=1)) 
+p
+
+
+p <- ggplot(test, aes(x=date, y=rol_rain_mean)) +
+  geom_line() + 
+  xlab("") + 
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "2 weeks") +
+  theme(axis.text.x=element_text(angle=60, hjust=1)) 
+p
+
+
+p <- ggplot(test, aes(x=date, y=rol_aet)) +
+  geom_line() + 
+  xlab("") + 
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "2 weeks") +
+  theme(axis.text.x=element_text(angle=60, hjust=1)) 
+p
