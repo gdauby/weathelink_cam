@@ -4,7 +4,7 @@ library(tidyverse)
 source("function_julian_date.R")
 
 dataset <- read_csv(
-  "Bouamir_Research_Station_11-19-23_23-00_1_Year_1720206107_v2.csv",
+  "ENEF01_1-10-23_00-00_1_Year_1727701463_v2.csv",
   skip = 5,
   col_types = cols(.default = "c"),
   locale = locale(encoding = "latin1")
@@ -68,7 +68,7 @@ dataset_num <-
 
 dataset_num <- 
   dataset_num %>% 
-  mutate(date_julian = sapply(dataset_num$date, calculate_julian_day))
+  mutate(date_julian = sapply(dataset_num$date, calculate_julian_day))  # why? 
 
 ## Explore missing data #####
 
