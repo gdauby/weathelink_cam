@@ -3,7 +3,17 @@ library(tidyverse)
 library(dplyr)
 library("imputeTS")
 library("climatol") # https://climatol.eu/
+
+require(data.table)
 source("functions_pp.R")
+
+#install.packages("climaemet", repos = c("https://ropenspain.r-universe.dev", "https://cloud.r-project.org"))
+require(climaemet)
+
+library(tidyverse)
+library(ggridges)
+library(scales)
+
 
 ######
 ###### Read & reformat data
@@ -147,8 +157,353 @@ data.dt = data.dt[order(data.dt$month),]
 tmpx = as.data.frame(t(data.dt[,-1]))
 data(climatol_data)
 names(tmpx) = names(datcli)
-diagwl(tmpx, est="Manchester [Lat: 53.5, Lon: -2.2]", alt="38", per="1970 to 2000")
-diagwl(tmpx,cols=NULL, est="My Airport", alt=100, per="2023-2024", mlab="en")
+diagwl(tmpx,
+       cols=NULL, 
+       est="Mbalmayo", 
+       alt=600, 
+       per="2023-2024", 
+       mlab="en", 
+       shem=T)
+
+
+ggclimat_walter_lieth(tmpx,
+                      alt = "600", per = "2023-2024",
+                      est = "Mbalmayo")
+
+
+
+############
+############  Temperature
+############
+
+###
+### Look at Temperature distribution
+###
+
+# Plot T° considering all raw (NA omited) records
+{
+#.......................calculate avg temp.......................
+T_avg <- dataset_num |> 
+  summarize(mean_temp = round(mean(temp, na.rm = TRUE), 1)) |> 
+  pull() 
+
+#..............................plot..............................
+dataset_num |> 
+  group_by(month) |> 
+  
+  # initialize ggplot ----
+ggplot(aes(x = temp, y = month, fill = after_stat(x))) +
+  
+  # create ridgeline plot ----
+ggridges::geom_density_ridges_gradient(rel_min_height = 0.01, scale = 3) + # rel_min_height cuts trailing tails (0.01 suggested); scale sets extent of overlap
+  
+  # add vertical line at avg temp + annotation
+  geom_vline(xintercept = T_avg, linetype = "dashed", color = "black") +
+  
+  # set x-axis breaks ----
+scale_x_continuous(breaks = seq(15,40,5)) +
+  
+  # arrange months in reverse chronological order ----
+scale_y_discrete(labels = month.name) + 
+  
+  # fill color ----
+scale_fill_gradientn(colors = c("#2C5374","#778798", "#ADD8E6", "#EF8080", "#8B3A3A"), name = "Temp. (°C)") +
+  
+  # update labs & titles ----
+labs(x = "Temperature (°C)") +
+  
+  # apply theme ----
+ggridges::theme_ridges(font_size = 13, grid = TRUE) +
+  
+  # adjust theme options ----
+theme(
+  axis.title.y = element_blank()
+)
+}
+
+# Plot considering all aggregated daily records (-> here, max daily T°)
+{
+data.dt = as.data.table(data)
+data.dt = data.dt[, by=c("month", "date_julian_Day", "day"), .("MeanT" = mean(temp, na.rm = T))]
+#.......................calculate avg temp.......................
+T_avg <- data.dt |> 
+  summarize(mean_temp = round(mean(MeanT, na.rm = TRUE), 1)) |> 
+  pull() 
+
+#..............................plot..............................
+data.dt |> 
+  group_by(month) |> 
+  
+  # initialize ggplot ----
+ggplot(aes(x = MeanT, y = as.factor(month), fill = after_stat(x))) +
+  
+  # create ridgeline plot ----
+ggridges::geom_density_ridges_gradient(rel_min_height = 0.01, scale = 3) + # rel_min_height cuts trailing tails (0.01 suggested); scale sets extent of overlap
+  
+  # add vertical line at avg temp + annotation
+  geom_vline(xintercept = T_avg, linetype = "dashed", color = "black") +
+  
+  # set x-axis breaks ----
+scale_x_continuous(breaks = seq(15,40,5)) +
+  
+  # arrange months in reverse chronological order ----
+scale_y_discrete(labels = month.name) + 
+  
+  # fill color ----
+scale_fill_gradientn(colors = c("#2C5374","#778798", "#ADD8E6", "#EF8080", "#8B3A3A"), name = "Temp. (°C)") +
+  
+  # update labs & titles ----
+labs(x = "Temperature (°C)") +
+  
+  # apply theme ----
+ggridges::theme_ridges(font_size = 13, grid = TRUE) +
+  
+  # adjust theme options ----
+theme(
+  axis.title.y = element_blank()
+)
+}
+
+# Plot heatmap
+ggplot(data = data.dt, aes(x = day, y = as.factor(month))) + 
+  geom_tile(aes(fill = MeanT)) + 
+  coord_equal(ratio = 1) + 
+  ylab("Month") + 
+  scale_fill_viridis(option="magma") 
+
+# Heatmap v2
+month.labs <- month.name
+names(month.labs) <- 1:12
+ggplot(data, aes(x = day, y = hour, fill = temp)) +
+  geom_tile() +
+  scale_fill_viridis(name = expression(degree*C),
+                     option = "plasma") +
+  facet_grid(cols = vars(month), labeller = labeller(month = month.labs)) +
+  ylab("Hour of the day") +
+  xlab("Day of the week") 
+
+# Circular style
+dataset_num$date_tmp = format(as.POSIXct(dataset_num$date),format='%m/%d')  # remove hour:min
+data.dt = as.data.table(dataset_num)
+Temp.dt = data.dt[, by=c("date_tmp"), .("min_temperaturec" = min(temp, na.rm = T),      
+                                        "max_temperaturec" = max(temp, na.rm = T),         
+                                        "mean_temperaturec" = mean(temp, na.rm = T))]
+Temp.dt$date_tmp = as.Date(as.POSIXct(Temp.dt$date_tmp,format='%m/%d'))
+
+ggplot(Temp.dt, aes(date_tmp, ymin = min_temperaturec, ymax = max_temperaturec, color = mean_temperaturec)) +
+  geom_linerange(size = 1.3, alpha = 0.75) +
+  scale_color_viridis_c(NULL, option = "A") +
+  scale_x_date(labels = date_format("%b"), breaks = date_breaks("month")) +
+  ylim(15, 35) +
+  labs(
+    title = "T° circular style",
+    x = NULL,
+    y = NULL) +
+  coord_polar() +
+  theme(legend.position = "bottom") + 
+  theme_light()
+
+############
+############  Wind analyses
+############
+
+# Convert cardinal wind directions to degrees (numeric)
+data$avg_wind_dir_num = cardinal_direction_to_degrees(data$avg_wind_dir)
+data$high_wind_direction_num = cardinal_direction_to_degrees(data$high_wind_direction)
+
+# Check what data we playing with
+head(data[,which(grepl(names(data), pattern = "wind"))])
+
+# Convert/aggregate records into daily averages
+wind_data = as.data.table(data)
+wind_data = wind_data[, by=c("month", "date_julian_Day"), .("meanDaily_avg_wind_speed" = mean(avg_wind_speed, na.rm = T),       
+                                                            "meanDaily_avg_wind_dir_num" = mean(avg_wind_dir_num, na.rm = T),         
+                                                            "maxDaily_high_wind_speed" = max(high_wind_speed, na.rm = T),         
+                                                            "meanDaily_high_wind_direction_num" = mean(high_wind_direction_num, na.rm = T)  
+                                                            )]
+
+# Convert/aggregate records from daily to monthly averages
+wind_data = wind_data[, by=c("month"), .("meanMonthly_avg_wind_speed" = mean(meanDaily_avg_wind_speed, na.rm = T),       
+                                         "meanMonthly_avg_wind_dir_num" = mean(meanDaily_avg_wind_dir_num, na.rm = T),         
+                                         "meanMonthly_high_wind_speed" = mean(maxDaily_high_wind_speed, na.rm = T),       
+                                         "maxMonthly_high_wind_speed" = max(maxDaily_high_wind_speed, na.rm = T),
+                                         "meanMonthly_high_wind_direction_num" = mean(meanDaily_high_wind_direction_num, na.rm = T)  
+                                        )]
+
+# plot annual wind synthesis focused on direction, w/o notion of time/month
+
+ggwindrose(
+  speed = wind_data$meanMonthly_avg_wind_speed, 
+  direction = wind_data$meanMonthly_avg_wind_dir_num,
+  speed_cuts = seq(0, 16, 4), legend_title = "Wind speed (m/s)",
+  calm_wind = 0, n_col = 1, plot_title = "Mbalmayo")               # -> always same direction for average winds
+    
+ggwindrose(
+  speed = wind_data$meanMonthly_high_wind_speed, 
+  direction = wind_data$meanMonthly_high_wind_direction_num,
+  speed_cuts = seq(0, 16, 4), legend_title = "Wind speed (m/s)",
+  calm_wind = 0, n_col = 1, plot_title = "Mbalmayo")               # -> always same direction for high winds
+
+ggwindrose(
+  speed = wind_data$maxMonthly_high_wind_speed, 
+  direction = wind_data$meanMonthly_high_wind_direction_num,
+  speed_cuts = seq(0, 16, 4), legend_title = "Wind speed (m/s)",
+  calm_wind = 0, n_col = 1, plot_title = "Mbalmayo")               # -> always same direction for high winds
+
+# plot annual synthesis focused on seasonal variation
+
+ggplot(data = wind_data,
+       aes(x = month,
+           y = meanMonthly_avg_wind_speed)) +
+  geom_col() + 
+  coord_polar(theta = "x") + 
+  scale_x_continuous(breaks = 1:13,
+                   labels = c(month.abb[1:12], "NA")) +
+  theme_minimal() +
+  theme(legend.position="none") +
+  xlab("") + 
+  ylab("Average wind speed")
+
+
+ggplot(data = wind_data,
+       aes(x = month,
+           y = maxMonthly_high_wind_speed)) +
+  geom_col() + 
+  coord_polar(theta = "x") + 
+  scale_x_continuous(breaks = 1:13,
+                     labels = c(month.abb[1:12], "NA")) +
+  theme_minimal() +
+  theme(legend.position="none") +
+  xlab("") + 
+  ylab("High wind speed")
+
+
+
+
+
+
+
+
+# Convert/aggregate records into daily averages
+wind_data = as.data.table(data)
+wind_data = wind_data[, by=c("month","week", "date_julian_Day"), .("meanDaily_avg_wind_speed" = mean(avg_wind_speed, na.rm = T),       
+                                                            "meanDaily_avg_wind_dir_num" = mean(avg_wind_dir_num, na.rm = T),         
+                                                            "maxDaily_high_wind_speed" = max(high_wind_speed, na.rm = T),         
+                                                            "meanDaily_high_wind_direction_num" = mean(high_wind_direction_num, na.rm = T),
+                                                            "Precip" = sum(rain, na.rm = T)       # total daily precipitation
+)]
+
+# Convert/aggregate records from daily to monthly averages
+wind_data = wind_data[, by=c("month","week"), .("meanMonthly_avg_wind_speed" = mean(meanDaily_avg_wind_speed, na.rm = T),       
+                                         "meanMonthly_avg_wind_dir_num" = mean(meanDaily_avg_wind_dir_num, na.rm = T),         
+                                         "meanMonthly_high_wind_speed" = mean(maxDaily_high_wind_speed, na.rm = T),       
+                                         "maxMonthly_high_wind_speed" = max(maxDaily_high_wind_speed, na.rm = T),
+                                         "meanMonthly_high_wind_direction_num" = mean(meanDaily_high_wind_direction_num, na.rm = T),
+                                         "Precip" = sum(Precip, na.rm = T)        # total monthly precipitation
+)]
+
+
+ggplot(data = wind_data,
+       aes(x = week,
+           y = Precip)) +
+  geom_col(fill="blue4") + 
+  scale_x_continuous(breaks = 1:53) +
+  theme_minimal() +
+  theme(legend.position="none") +
+  xlab("") + 
+  ylab("High wind speed") +
+  geom_line(data = wind_data, aes(x = week, y = maxMonthly_high_wind_speed*20), size=1.5, col="red") +
+  coord_polar(theta = "x") 
+
+
+
+ggplot(data = wind_data,
+       aes(x = as.factor(month),
+           y = Precip)) +
+  #coord_polar(theta = "x") + 
+  geom_col( aes(x = week/4,
+                y = Precip), fill="blue4") 
+  
+
+
+
+
+  ggplot() +
+  geom_bar( data = wind_data, aes(x=week, y=Precip, group= month, color=month)) 
+
+
+
+
+
+
+
+
+
+
+
+
+ggclimat_walter_lieth_pp(tmpx,
+                      alt = "600", per = "2023-2024",
+                      est = "Mbalmayo")
+
+
+min_ylim = 0
+max_ylim = 40
+
+dat_long <- tibble::as_tibble(as.data.frame(t(tmpx)))
+dat_long$month = 1:12
+dat_long$prescal = scales::rescale(dat_long$Precip,
+                                  from = range(dat_long$Precip),
+                                  to = c(min_ylim, max_ylim))
+  
+pcol = "#002F70", 
+tcol = "#ff0000"
+
+ggplot() + 
+  geom_line(data = dat_long, aes(x = month, y = MaxT), color = tcol) + 
+  ylim(min_ylim,max_ylim) + 
+  geom_line(data = dat_long, aes(x = month, y = prescal), color = pcol)
+
+
+
+
+
+Temp_expansion_factor = 1.2
+
+range_tmp = range(dat_long$MaxT)
+dat_long$MaxT_rescale = scales::rescale(dat_long$MaxT,
+                                        from = range_tmp,
+                                        to = c(range_tmp[1]/Temp_expansion_factor, range_tmp[2]*Temp_expansion_factor))
+
+
+
+min_first  <- min(dat_long$MaxT_rescale)   # Specify min of first y axis : T°
+max_first  <- max(dat_long$MaxT_rescale)   # Specify max of first y axis : T°
+min_second <- min(dat_long$Precip) # Specify min of second y axis: Rain 
+max_second <- max(dat_long$Precip) # Specify max of second y axis : Rain
+
+
+
+# scale and shift variables calculated based on desired mins and maxes
+scale = 10 #(max_second - min_second)/(max_first - min_first)
+shift = min_first - min_second
+
+# Function to scale secondary axis
+scale_function <- function(x, scale, shift){
+  return ((x)*scale - shift)
+}
+
+# Function to scale secondary variable values
+inv_scale_function <- function(x, scale, shift){
+  return ((x + shift)/scale)
+}
+
+ggplot(dat_long, aes(x = month, y = MaxT_rescale)) +
+  geom_line(aes(color = "Temperature")) +
+  geom_line(aes(y = inv_scale_function(Precip, scale, shift), color = "Rain")) +
+  scale_x_continuous(breaks = seq(1, 12, 1)) +
+  scale_y_continuous(sec.axis = sec_axis(~scale_function(., scale, shift), name="Rain (mm)")) 
+  
 
 
 
