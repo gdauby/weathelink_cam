@@ -68,7 +68,7 @@ dataset_num <-
 
 dataset_num <- 
   dataset_num %>% 
-  mutate(date_julian = sapply(dataset_num$date, calculate_julian_day))
+  mutate(date_julian = sapply(dataset_num$date, calculate_julian_day))  # why? 
 
 ## Explore missing data #####
 
