@@ -22,15 +22,16 @@ path_to_data_export = "ENEF01_1-10-23_00-00_1_Year_1727701463_v2.csv"
 path_to_data_export = "Bouamir_Research_Station_11-19-23_23-00_1_Year_1720206107_v2.csv"
 
 # Prepare table header
-head = n.readLines(path_to_data_export,
+head = reader::n.readLines(path_to_data_export,
                    n = 1,
                    skip = 5)
-head = strsplit(head, ",")[[1]]
+
+head = str_split(string = head, pattern = ",")[[1]]
 name_list = c()
 for(i in 1:length(head))
 {
-  name_i = substr(head[i], 2, nchar(head[i]))
-  name_i = ifelse(length(strsplit(name_i, "- ")[[1]]) == 1,
+  name_i = str_sub(head[i], 2, nchar(head[i], type = "bytes"))
+  name_i = ifelse(length(str_split(name_i, "- ")[[1]]) == 1,
                   substr(name_i, 0, nchar(name_i)-1),
                   substr(strsplit(name_i, "- ")[[1]][1], 0, nchar(strsplit(name_i, "- ")[[1]][1])-1)
                   )

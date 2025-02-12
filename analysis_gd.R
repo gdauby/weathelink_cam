@@ -252,13 +252,13 @@ rain_events_grouped <-
             avg_high_wind_speed = mean(avg_high_wind_speed, na.rm = T),
             date_julian = paste(as.character(unique(date_julian)), collapse ="-")
             ) %>% 
-  mutate(across(contains("wind_speed"), ~set_units(., m/s))) %>% 
-  mutate(across(contains("wind_speed"), ~set_units(., km/h)))
+  mutate(across(contains("wind_speed"), ~units::set_units(., m/s))) %>% 
+  mutate(across(contains("wind_speed"), ~units::set_units(., km/h)))
 
 
 extreme_events <- 
   rain_events_grouped %>% 
-  filter(max_avg_wind_speed > set_units(10, km/h) | 
+  filter(max_avg_wind_speed > units::set_units(10, km/h) | 
          rain > 50)
 
 rain_events %>% 
