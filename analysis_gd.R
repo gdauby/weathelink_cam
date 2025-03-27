@@ -1,14 +1,51 @@
 
 
 library(tidyverse)
-source("function_julian_date.R")
+# source("function_julian_date.R")
 
-dataset <- read_csv(
-  "ENEF01_1-10-23_00-00_1_Year_1727701463_v2.csv",
+dataset1 <- read_csv(
+  "data/Bouamir_Research_Station_1-1-22_00-00_1_Year_1742921352_v2.csv",
   skip = 5,
   col_types = cols(.default = "c"),
   locale = locale(encoding = "latin1")
 )
+
+dataset2 <- read_csv(
+  "data/Bouamir_Research_Station_12-30-22_00-00_1_Year_1742921420_v2.csv",
+  skip = 5,
+  col_types = cols(.default = "c"),
+  locale = locale(encoding = "latin1")
+)
+
+dataset3 <- read_csv(
+  "data/Bouamir_Research_Station_12-29-23_00-00_1_Year_1742921448_v2.csv",
+  skip = 5,
+  col_types = cols(.default = "c"),
+  locale = locale(encoding = "latin1")
+)
+
+dataset4 <- read_csv(
+  "data/Bouamir_Research_Station_12-26-24_00-00_1_Year_1742921493_v2.csv",
+  skip = 5,
+  col_types = cols(.default = "c"),
+  locale = locale(encoding = "latin1")
+)
+
+dataset1 <- 
+  dataset1 %>% 
+  filter(!`Date & Time` %in% dataset2$`Date & Time`)
+
+dataset2 <- 
+  dataset2 %>% 
+  filter(!`Date & Time` %in% dataset3$`Date & Time`)
+
+dataset3 <- 
+  dataset3 %>% 
+  filter(!`Date & Time` %in% dataset4$`Date & Time`)
+
+dataset <- 
+  bind_rows(dataset1, dataset2,
+            dataset3, dataset4)
 
 all_colnames <- tibble(original_colnam = names(dataset))
 
@@ -68,7 +105,12 @@ dataset_num <-
 
 dataset_num <- 
   dataset_num %>% 
-  mutate(date_julian = sapply(dataset_num$date, calculate_julian_day))  # why? 
+  mutate(date_julian = round(as.numeric(julian(date, origin = min(dataset_num$date))), 0))
+# %>% 
+#   mutate(date_julian2 = sapply(dataset_num$date, calculate_julian_day)) %>% 
+#   select(date_julian1, date_julian2)
+
+dataset_num[, c("date_time", "date", "date_julian")]
 
 ## Explore missing data #####
 
@@ -90,7 +132,8 @@ day_seq <-
 
 day_seq <- 
   day_seq %>% 
-  mutate(date_julian = sapply(day_seq$day_int, calculate_julian_day)) %>% 
+  # mutate(date_julian2 = sapply(day_seq$day_int, calculate_julian_day)) %>% 
+  mutate(date_julian = round(as.numeric(julian(day_int, origin = min(dataset_num$date))), 0)) %>% 
   select(date_julian, day, month, year) %>% 
   distinct()
 
@@ -109,7 +152,7 @@ missing_val_per_day <-
   day_seq %>% 
   left_join(missing_val_per_day)
 
-### table with time interval for each day and the maximam number of values it means
+### table with time interval for each day and the maximum number of values it means
 interval_measures <- 
   missing_val_per_day %>% 
   group_by(time_int) %>% 
@@ -128,7 +171,8 @@ missing_val_per_day <-
 
 ## list of days with no values
 missing_val_per_day %>% 
-  filter(is.na(nbe_val))
+  filter(is.na(nbe_val)) %>% 
+  View
 
 ### list of days for which we have less than 80 % of values
 missing_val_per_day %>% 
@@ -228,7 +272,7 @@ dataset_filtered %>%
   filter(rain > 100)
 
 
-### rain events identified as consecutives hours where rain > 0
+### rain events identified as consecutive hours where rain > 0
 rain_events <- 
   dataset_filtered %>% 
   select(date_julian, hour, rain, avg_wind_speed, high_wind_speed, day, month, year, date) %>% 
@@ -250,7 +294,11 @@ rain_events_grouped <-
             max_avg_wind_speed = max(max_avg_wind_speed, na.rm = T),
             max_high_wind_speed = max(max_high_wind_speed, na.rm = T),
             avg_high_wind_speed = mean(avg_high_wind_speed, na.rm = T),
-            date_julian = paste(as.character(unique(date_julian)), collapse ="-")
+            first_date_julian = min(date_julian),
+            date_julian = paste(as.character(unique(date_julian)), collapse ="-"),
+            day = min(day),
+            month = min(month),
+            year = min(year)
             ) %>% 
   mutate(across(contains("wind_speed"), ~units::set_units(., m/s))) %>% 
   mutate(across(contains("wind_speed"), ~units::set_units(., km/h)))
@@ -259,7 +307,17 @@ rain_events_grouped <-
 extreme_events <- 
   rain_events_grouped %>% 
   filter(max_avg_wind_speed > units::set_units(10, km/h) | 
-         rain > 50)
+         rain > 25) %>% 
+  mutate(rain_tag = 1)
+
+extreme_events <- 
+  extreme_events %>% 
+  group_by(first_date_julian) %>% 
+  summarise(across(contains('rain'), ~sum(.)),
+            across(contains('speed'), ~mean(.)),
+            day = first(day),
+            month = first(month),
+            year = first(year))
 
 rain_events %>% 
   filter(rain_event %in% extreme_events$rain_event) %>% 
@@ -274,8 +332,9 @@ rain_events_month <-
   mutate(month_txt = paste(year, month, "01", sep = "-")) %>% 
   mutate(month_d = as.Date(month_txt)) %>%
   mutate(month_d = format(month_d, "%Y-%m")) %>% 
-  ungroup() %>% 
-  mutate(DOY = seq(15, 365, by = 365/12))
+  ungroup() 
+# %>% 
+#   mutate(DOY = seq(15, 365, by = 365/12))
 
 
 
@@ -290,7 +349,10 @@ test <-
             rain = sum(rain, na.rm = T),
             avg_wind_speed = mean(avg_wind_speed, na.rm = T),
             et = mean(et, na.rm = T)) %>% 
-  ungroup() %>% 
+  ungroup() %>%
+  left_join(extreme_events %>% 
+              select(first_date_julian, rain_tag), 
+            by = c("date_julian" = "first_date_julian")) %>% 
   mutate(rol_temp_mean = rollapply(data = temp, width = 15, 
                                    FUN = mean, align = "right", fill = NA, na.rm = TRUE),
          rol_rain_mean = rollapply(data = rain, width = 15, 
@@ -298,12 +360,22 @@ test <-
          rol_avg_wind_speed_mean = rollapply(data = avg_wind_speed, width = 15, 
                                              FUN = mean, align = "right", fill = NA),
          rol_aet = rollapply(data = et, width = 15, 
-                                             FUN = mean, align = "right", fill = NA)) %>% 
+                                             FUN = mean, align = "right", fill = NA),
+         rol_rain_tag = rollapply(data = rain_tag, width = 15, 
+                             FUN = sum, align = "right", fill = NA, na.rm = TRUE)) %>% 
   mutate(date = paste(year, month, day, sep = "-")) %>% 
   mutate(date = as.Date(date))
 
 
 p <- ggplot(test, aes(x=date, y=rol_temp_mean)) +
+  geom_line() + 
+  xlab("") + 
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "2 weeks") +
+  theme(axis.text.x=element_text(angle=60, hjust=1)) 
+p
+
+
+p <- ggplot(test, aes(x=date, y=rol_rain_tag)) +
   geom_line() + 
   xlab("") + 
   scale_x_date(date_labels = "%Y %b %d", date_breaks = "2 weeks") +
